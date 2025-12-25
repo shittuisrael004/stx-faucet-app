@@ -1,51 +1,64 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { showConnect, openContractCall } from '@stacks/connect';
-import { userSession, network, CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
+import { useState } from 'react';
+import { connect, disconnect, request, isConnected } from '@stacks/connect';
+import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
+import { TransactionResult } from '@stacks/connect/dist/types/methods';
 
 export default function FaucetPage() {
-  const [userData, setUserData] = useState<any>(null);
+  const [address, setAddress] = useState<string | null>(null);
 
-  // Check if user is already logged in when the page loads
-  useEffect(() => {
-    if (userSession.isUserSignedIn()) {
-      setUserData(userSession.loadUserData());
+  async function handleConnect() {
+    try {
+      // SIP-030 way to initiate connection
+      const response = await connect();
+      
+      // Look for the Stacks Mainnet address in the response
+      // Usually, it's the address where the symbol is "STX" or prefix is "SP"
+      const stxAddr = response.addresses.find(
+        (a) => a.symbol === 'STX' || a.address.startsWith('SP')
+      );
+
+      if (stxAddr) {
+        setAddress(stxAddr.address);
+      }
+    } catch (error) {
+      console.error('Connection failed', error);
     }
-  }, []);
+  }
 
-  const handleConnect = () => {
-    showConnect({
-      appDetails: {
-        name: 'STX Faucet',
-        icon: '/window.svg',
-      },
-      onFinish: () => {
-        setUserData(userSession.loadUserData());
-      },
-      userSession,
-    });
-  };
+  async function handleDisconnect() {
+    disconnect();
+    setAddress(null);
+  }
 
-  const handleClaim = async () => {
-    await openContractCall({
-      network,
-      contractAddress: CONTRACT_ADDRESS,
-      contractName: CONTRACT_NAME,
-      functionName: 'claim-stx',
-      functionArgs: [],
-      onFinish: (data) => {
-        alert(`Success! View on Explorer: https://explorer.hiro.so/txid/${data.txId}?chain=mainnet`);
-      },
-    });
-  };
+  async function handleClaim() {
+    if (!address) return;
+
+    try {
+      // SIP-030 RPC call: stx_callContract
+      const result: TransactionResult = await request('stx_callContract', {
+        contract: `${CONTRACT_ADDRESS}.${CONTRACT_NAME}`,
+        functionName: 'claim-stx',
+        functionArgs: [], // No arguments for your faucet
+        network: 'mainnet',
+        postConditions: [], // No STX leaving the user wallet, so empty is fine
+        postConditionMode: 'deny',
+      });
+
+      alert(`Claim transaction sent! ID: ${result.txid}`);
+    } catch (error) {
+      console.error('Claim failed', error);
+      alert('Transaction cancelled or failed.');
+    }
+  }
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border border-gray-100">
         <h1 className="text-3xl font-extrabold text-orange-600 mb-2">STX Faucet</h1>
-        <p className="text-gray-500 mb-8">Mainnet • 0.05 STX Drip</p>
+        <p className="text-gray-500 mb-8">Mainnet • SIP-030 Standard</p>
 
-        {!userData ? (
+        {!address ? (
           <button
             onClick={handleConnect}
             className="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition"
@@ -55,7 +68,7 @@ export default function FaucetPage() {
         ) : (
           <div>
             <div className="bg-orange-50 p-3 rounded-md mb-6 text-xs text-orange-800 font-mono break-all">
-              Connected: {userData.profile.stxAddress.mainnet}
+              Connected: {address}
             </div>
             
             <button
@@ -66,10 +79,10 @@ export default function FaucetPage() {
             </button>
 
             <button 
-              onClick={() => { userSession.signUserOut(); setUserData(null); }}
+              onClick={handleDisconnect}
               className="mt-4 text-gray-400 text-sm hover:underline"
             >
-              Sign Out
+              Disconnect
             </button>
           </div>
         )}
