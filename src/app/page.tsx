@@ -1,92 +1,144 @@
 'use client';
-import { useState } from 'react';
-import { connect, disconnect, request, isConnected } from '@stacks/connect';
-import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
-import { TransactionResult } from '@stacks/connect/dist/types/methods';
+import { useState, useEffect, useCallback } from 'react';
+import { connect, disconnect, request } from '@stacks/connect';
+import { CONTRACT_ADDRESS, CONTRACT_NAME, network } from '@/lib/stacks';
+import { fetchCallReadOnlyFunction, Cl, cvToValue } from '@stacks/transactions';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function FaucetPage() {
   const [address, setAddress] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [faucetBalance, setFaucetBalance] = useState<string>("0");
+  const [isEligible, setIsEligible] = useState<boolean | null>(null);
+  const [txId, setTxId] = useState<string | null>(null);
 
-  async function handleConnect() {
+  // 1. Fetch Faucet Balance & Eligibility
+  const updateContractState = useCallback(async (userAddr: string | null) => {
     try {
-      // SIP-030 way to initiate connection
-      const response = await connect();
-      
-      // Look for the Stacks Mainnet address in the response
-      // Usually, it's the address where the symbol is "STX" or prefix is "SP"
-      const stxAddr = response.addresses.find(
-        (a) => a.symbol === 'STX' || a.address.startsWith('SP')
-      );
+      // Get Balance (Using public Hiro API for speed)
+      const balRes = await fetch(`https://api.mainnet.hiro.so/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}/balances`);
+      const balData = await balRes.json();
+      const stxBalance = parseInt(balData.stx.balance) / 1000000;
+      setFaucetBalance(stxBalance.toLocaleString());
 
-      if (stxAddr) {
-        setAddress(stxAddr.address);
+      // Check Eligibility (Read-only call to your contract)
+      if (userAddr) {
+        const result = await fetchCallReadOnlyFunction({
+          network,
+          contractAddress: CONTRACT_ADDRESS,
+          contractName: CONTRACT_NAME,
+          functionName: "is-eligible",
+          functionArgs: [Cl.principal(userAddr)],
+          senderAddress: userAddr,
+        });
+        // Converts Clarity boolean to JS boolean
+        setIsEligible(cvToValue(result));
       }
-    } catch (error) {
-      console.error('Connection failed', error);
+    } catch (e) {
+      console.error("Failed to fetch state", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    updateContractState(address);
+    const interval = setInterval(() => updateContractState(address), 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [address, updateContractState]);
+
+  // 2. Connect Wallet
+  async function handleConnect() {
+    setLoading(true);
+    try {
+      const response = await connect();
+      const stxAddr = response.addresses.find(a => a.symbol === 'STX' || a.address.startsWith('SP'));
+      if (stxAddr) setAddress(stxAddr.address);
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function handleDisconnect() {
-    disconnect();
-    setAddress(null);
-  }
-
+  // 3. Claim STX
   async function handleClaim() {
-    if (!address) return;
-
+    if (!address || !isEligible) return;
+    setLoading(true);
     try {
-      // SIP-030 RPC call: stx_callContract
-      const result: TransactionResult = await request('stx_callContract', {
+      const result = await request('stx_callContract', {
         contract: `${CONTRACT_ADDRESS}.${CONTRACT_NAME}`,
         functionName: 'claim-stx',
-        functionArgs: [], // No arguments for your faucet
+        functionArgs: [],
         network: 'mainnet',
-        postConditions: [], // No STX leaving the user wallet, so empty is fine
+        postConditions: [],
         postConditionMode: 'deny',
       });
-
-      alert(`Claim transaction sent! ID: ${result.txid}`);
-    } catch (error) {
-      console.error('Claim failed', error);
-      alert('Transaction cancelled or failed.');
+      setTxId(result.txid);
+    } finally {
+      setLoading(false);
     }
+  }
+
+  // 4. Fund Faucet (Simple STX Transfer)
+  async function handleFund() {
+    try {
+      await request('stx_transferStx', {
+        recipient: `${CONTRACT_ADDRESS}.${CONTRACT_NAME}`,
+        amount: '5000000', // Default to 5 STX, user can edit in wallet
+        network: 'mainnet',
+      });
+    } catch (e) { console.error(e); }
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border border-gray-100">
-        <h1 className="text-3xl font-extrabold text-orange-600 mb-2">STX Faucet</h1>
-        <p className="text-gray-500 mb-8">Mainnet • SIP-030 Standard</p>
-
-        {!address ? (
-          <button
-            onClick={handleConnect}
-            className="w-full bg-black text-white font-bold py-3 rounded-lg hover:bg-gray-800 transition"
-          >
-            Connect Wallet
-          </button>
-        ) : (
-          <div>
-            <div className="bg-orange-50 p-3 rounded-md mb-6 text-xs text-orange-800 font-mono break-all">
-              Connected: {address}
-            </div>
-            
-            <button
-              onClick={handleClaim}
-              className="w-full bg-orange-500 text-white font-bold py-4 rounded-lg hover:bg-orange-600 transition shadow-lg shadow-orange-200"
-            >
-              Claim 0.05 STX
-            </button>
-
-            <button 
-              onClick={handleDisconnect}
-              className="mt-4 text-gray-400 text-sm hover:underline"
-            >
-              Disconnect
-            </button>
+    <main className="min-h-screen flex items-center justify-center bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-100 via-slate-50 to-orange-50 p-6 font-sans">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-2xl p-10 text-center border border-white">
+        
+        {/* Faucet Balance Header */}
+        <div className="flex items-center justify-between mb-8 bg-slate-900 text-white p-4 rounded-2xl shadow-inner">
+          <div className="text-left">
+            <p className="text-[10px] uppercase tracking-widest text-slate-400 font-bold">Faucet Balance</p>
+            <p className="text-xl font-mono font-bold text-orange-400">{faucetBalance} STX</p>
           </div>
-        )}
-      </div>
+          <button onClick={handleFund} className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold py-2 px-4 rounded-xl transition-all shadow-lg shadow-orange-500/20">
+            + Fund
+          </button>
+        </div>
+
+        <h1 className="text-4xl font-black text-slate-800 mb-2 tracking-tight">STX <span className="text-orange-500">Faucet</span></h1>
+        
+        <AnimatePresence mode="wait">
+          {!address ? (
+            <button onClick={handleConnect} disabled={loading} className="w-full mt-6 bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all shadow-xl">
+              {loading ? "Connecting..." : "Connect Wallet"}
+            </button>
+          ) : (
+            <div className="mt-8 space-y-6">
+              {/* Eligibility Status */}
+              <div className={`p-4 rounded-2xl border text-sm font-bold flex items-center justify-center gap-2 ${isEligible ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                {isEligible === null ? "Checking..." : isEligible ? "✅ You are eligible to claim" : "❌ Claim limit reached (24h)"}
+              </div>
+
+              {/* Claim Button */}
+              <button
+                onClick={handleClaim}
+                disabled={loading || !isEligible}
+                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all shadow-lg shadow-orange-500/30"
+              >
+                {loading ? "Processing..." : isEligible ? "Claim 0.05 STX" : "Wait 24 Hours"}
+              </button>
+
+              {txId && (
+                <div className="bg-blue-50 border border-blue-100 p-4 rounded-2xl">
+                  <p className="text-blue-700 text-xs font-bold truncate underline">
+                    <a href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} target="_blank">Track: {txId}</a>
+                  </p>
+                </div>
+              )}
+
+              <p className="text-[10px] text-slate-400 font-mono">Wallet: {address}</p>
+              <button onClick={() => { disconnect(); setAddress(null); }} className="text-slate-400 text-xs hover:text-red-500 underline">Disconnect</button>
+            </div>
+          )}
+        </AnimatePresence>
+      </motion.div>
     </main>
   );
 }
