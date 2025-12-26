@@ -10,8 +10,8 @@ export default function FaucetPage() {
   const [loading, setLoading] = useState(false);
   const [txId, setTxId] = useState<string | null>(null);
   const [faucetBalance, setFaucetBalance] = useState<string>("...");
+  const [fundAmount, setFundAmount] = useState<string>("");
 
-  // Optimized balance fetcher
   const getBalance = useCallback(async () => {
     try {
       const res = await fetch(
@@ -27,7 +27,7 @@ export default function FaucetPage() {
 
   useEffect(() => {
     getBalance();
-    const interval = setInterval(getBalance, 30000); // Auto-refresh every 30s
+    const interval = setInterval(getBalance, 30000);
     return () => clearInterval(interval);
   }, [getBalance]);
 
@@ -46,7 +46,7 @@ export default function FaucetPage() {
   async function handleClaim() {
     if (!address) return;
     setLoading(true);
-    setTxId(null); // Reset previous TX link
+    setTxId(null);
 
     try {
       await openContractCall({
@@ -63,12 +63,9 @@ export default function FaucetPage() {
         onFinish: (data) => {
           setTxId(data.txId);
           setLoading(false);
-          // Refresh balance after a few seconds to let the chain update
           setTimeout(getBalance, 5000);
         },
-        onCancel: () => {
-          setLoading(false);
-        },
+        onCancel: () => setLoading(false),
       });
     } catch (error) {
       console.error('Transaction failed', error);
@@ -76,79 +73,101 @@ export default function FaucetPage() {
     }
   }
 
+  // NEW: Funding logic that multiplies by 1,000,000
+  async function handleFund() {
+    if (!fundAmount || isNaN(Number(fundAmount))) return;
+    
+    // Convert STX input to microSTX string
+    const microStxAmount = (parseFloat(fundAmount) * 1000000).toString();
+
+    try {
+      await openContractCall({
+        contractAddress: CONTRACT_ADDRESS,
+        contractName: CONTRACT_NAME,
+        functionName: 'fund-faucet', // Ensure this matches your contract function
+        functionArgs: [], 
+        // Note: For a direct STX transfer to contract, 
+        // stx_transferStx is often simpler, but callContract works 
+        // if your contract has a funding function.
+        postConditionMode: PostConditionMode.Allow,
+        network: 'mainnet' as any,
+        appDetails: { name: 'STX Faucet', icon: '' },
+        onFinish: () => {
+          setFundAmount("");
+          setTimeout(getBalance, 5000);
+        }
+      });
+    } catch (e) {
+      console.error("Funding failed", e);
+    }
+  }
+
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#fcfcfc] bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-orange-50 via-white to-slate-100 p-6">
+    <main className="min-h-screen flex items-center justify-center bg-[#fcfcfc] p-6 font-sans">
       <motion.div 
         initial={{ opacity: 0, y: 10 }} 
         animate={{ opacity: 1, y: 0 }} 
-        className="max-w-md w-full bg-white rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] p-10 text-center border border-slate-50"
+        className="max-w-md w-full bg-white rounded-[3rem] shadow-2xl p-10 text-center border border-slate-50"
       >
-        {/* Modern Balance Card */}
-        <div className="mb-10 bg-[#111827] rounded-3xl p-6 text-white shadow-2xl shadow-orange-900/10 relative overflow-hidden">
-          <div className="absolute top-0 right-0 p-4">
-            <span className="flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-            </span>
+        {/* Faucet Liquidity Header */}
+        <div className="mb-8 bg-[#111827] rounded-3xl p-6 text-white relative">
+          <div className="text-left">
+            <p className="text-[11px] text-slate-400 font-black uppercase tracking-widest mb-1">Faucet Liquidity</p>
+            <p className="text-3xl font-mono text-white font-bold">{faucetBalance} <span className="text-orange-500 text-xl">STX</span></p>
           </div>
-          <div className="text-left relative z-10">
-            <p className="text-[11px] text-slate-400 font-black uppercase tracking-[0.2em] mb-1">Faucet Liquidity</p>
-            <p className="text-3xl font-mono text-white font-bold">
-              {faucetBalance} <span className="text-orange-500 text-xl">STX</span>
-            </p>
-          </div>
+          <div className="absolute top-4 right-4 bg-orange-500/20 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">LIVE</div>
         </div>
 
-        <h1 className="text-4xl font-black text-slate-800 mb-2 tracking-tighter">
-          STX <span className="text-orange-500">Faucet</span>
-        </h1>
-        <p className="text-slate-400 text-sm mb-10 font-medium">Mainnet Rewards Protocol</p>
+        <h1 className="text-4xl font-black text-slate-800 mb-2">STX <span className="text-orange-500">Faucet</span></h1>
+        <p className="text-slate-400 text-xs mb-8">Mainnet Rewards Protocol</p>
 
         <AnimatePresence mode="wait">
           {!address ? (
-            <motion.button 
-              key="connect"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              onClick={handleConnect} 
-              className="w-full bg-slate-900 text-white font-bold py-5 rounded-2xl hover:bg-slate-800 transition-all shadow-xl active:scale-95"
-            >
+            <button onClick={handleConnect} className="w-full bg-slate-900 text-white font-bold py-5 rounded-2xl hover:bg-slate-800 transition-all">
               Connect Wallet
-            </motion.button>
+            </button>
           ) : (
-            <motion.div 
-              key="active"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              className="space-y-4"
-            >
+            <div className="space-y-6">
+              {/* Claim Section */}
               <button
                 onClick={handleClaim}
                 disabled={loading}
-                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 active:scale-95 disabled:opacity-50"
+                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50"
               >
-                {loading ? "Waiting for Approval..." : "Claim 0.05 STX"}
+                {loading ? "Processing..." : "Claim 0.05 STX"}
               </button>
 
+              {/* NEW: Funding Section */}
+              <div className="pt-6 border-t border-slate-100">
+                <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mb-3 text-left">Top up Faucet</p>
+                <div className="flex gap-2">
+                  <input 
+                    type="number" 
+                    placeholder="Amount in STX" 
+                    value={fundAmount}
+                    onChange={(e) => setFundAmount(e.target.value)}
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                  />
+                  <button 
+                    onClick={handleFund}
+                    className="bg-slate-900 text-white px-4 py-3 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors"
+                  >
+                    Fund
+                  </button>
+                </div>
+              </div>
+
               {txId && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 5 }} 
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl"
-                >
-                  <p className="text-emerald-700 text-xs font-bold leading-relaxed">
-                    Transaction Broadcasted!<br/>
-                    <a 
-                      href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} 
-                      target="_blank" 
-                      className="underline decoration-emerald-200 hover:decoration-emerald-500"
-                    >
-                      Track on Explorer ↗
-                    </a>
+                <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
+                  <p className="text-emerald-700 text-[10px] font-bold break-all">
+                    Tx Sent! <a href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} target="_blank" className="underline">View in Explorer</a>
                   </p>
-                </motion.div>
+                </div>
               )}
 
-              <div className="pt-6 mt-6 border-t border-slate-50 flex flex-col items-center">
-                <p className="text-[10px] text-slate-300 font-mono truncate max-w-[200px] mb-3">
+              {/* Full Connected Address */}
+              <div className="pt-6 border-t border-slate-100">
+                <p className="text-[9px] text-slate-400 font-mono break-all mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
                   {address}
                 </p>
                 <button 
@@ -158,7 +177,7 @@ export default function FaucetPage() {
                   Disconnect
                 </button>
               </div>
-            </motion.div>
+            </div>
           )}
         </AnimatePresence>
       </motion.div>
