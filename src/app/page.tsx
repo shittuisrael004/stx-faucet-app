@@ -4,10 +4,7 @@ import { connect, disconnect, request } from '@stacks/connect';
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
 import { TransactionResult } from '@stacks/connect/dist/types/methods';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// FIXED IMPORTS
 import { fetchCallReadOnlyFunction, Cl, cvToValue } from '@stacks/transactions';
-import { StacksMainnet } from '@stacks/network';
 
 export default function FaucetPage() {
   const [address, setAddress] = useState<string | null>(null);
@@ -16,32 +13,28 @@ export default function FaucetPage() {
   const [isEligible, setIsEligible] = useState<boolean | null>(null);
   const [faucetBalance, setFaucetBalance] = useState<string>("...");
 
-  // Define the network object properly
-  const mainnet = new StacksMainnet();
-
+  // 1. Sync State (No StacksMainnet object needed)
   const updateState = useCallback(async (userAddr: string) => {
     try {
-      // 1. Check Eligibility via Read-Only Function
+      // READ-ONLY: Checking eligibility
       const result = await fetchCallReadOnlyFunction({
-        network: mainnet,
         contractAddress: CONTRACT_ADDRESS,
         contractName: CONTRACT_NAME,
         functionName: 'is-eligible',
         functionArgs: [Cl.principal(userAddr)],
         senderAddress: userAddr,
+        // We pass the URL directly instead of a network object
+        network: { coreApiUrl: 'https://api.mainnet.hiro.so' } as any,
       });
       setIsEligible(cvToValue(result));
 
-      // 2. FIXED API FETCH
-      // Hiro API endpoint for balances
+      // BALANCE: Using the Hiro API directly
       const balRes = await fetch(`https://api.mainnet.hiro.so/extended/v1/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}/balances`);
       const balData = await balRes.json();
-      
-      // Accessing the STX balance specifically
       const microStx = balData.stx?.balance || "0";
       setFaucetBalance((parseInt(microStx) / 1000000).toLocaleString());
     } catch (e) {
-      console.error("Failed to sync with contract:", e);
+      console.error("Sync error:", e);
     }
   }, []);
 
@@ -62,36 +55,30 @@ export default function FaucetPage() {
     }
   }
 
+  // 2. THE TRANSACTION CALL (SIP-030 RPC)
   async function handleClaim() {
     if (!address || isEligible === false) return;
     setLoading(true);
     setTxId(null);
 
     try {
-      const result: TransactionResult = await request('stx_callContract', {
+      // This is the specific SIP-030 RPC method
+      const result = await (window as any).StacksProvider.request('stx_callContract', {
         contract: `${CONTRACT_ADDRESS}.${CONTRACT_NAME}`,
         functionName: 'claim-stx',
-        functionArgs: [],
+        functionArgs: [], // No args
         network: 'mainnet',
-        postConditions: [],
-        postConditionMode: 'deny',
+        postConditions: [], 
+        postConditionMode: 'allow', // CHANGED TO ALLOW: Faucets send STX TO the user, deny often blocks this
       });
+      
       setTxId(result.txid);
-    } catch (error) {
-      console.error('Claim failed', error);
+    } catch (error: any) {
+      console.error('Claim failed:', error);
+      alert(`Error: ${error.message || 'Transaction rejected'}`);
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleFund() {
-    try {
-      await request('stx_transferStx', {
-        recipient: `${CONTRACT_ADDRESS}.${CONTRACT_NAME}`,
-        amount: '1000000', 
-        network: 'mainnet',
-      });
-    } catch (e) { console.error(e); }
   }
 
   return (
@@ -100,48 +87,42 @@ export default function FaucetPage() {
         
         <div className="flex justify-between items-center mb-8 bg-slate-900 rounded-2xl p-4 text-white shadow-inner">
           <div className="text-left">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">Faucet Balance</p>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">Faucet</p>
             <p className="text-xl font-mono text-orange-400 font-bold">{faucetBalance} STX</p>
           </div>
-          <button onClick={handleFund} className="bg-orange-500 hover:bg-orange-600 px-3 py-1 rounded-lg text-xs font-bold transition-all">
-            + Fund
-          </button>
+          <div className="px-3 py-1 bg-slate-800 rounded-lg text-[10px] text-orange-400 font-bold">MAINNET</div>
         </div>
 
         <h1 className="text-4xl font-black text-slate-800 mb-2 tracking-tight">STX <span className="text-orange-500">Faucet</span></h1>
-        <p className="text-slate-500 font-medium mb-8 italic">Mainnet • SIP-030</p>
 
         <AnimatePresence mode="wait">
           {!address ? (
-            <button onClick={handleConnect} disabled={loading} className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all shadow-xl">
+            <button onClick={handleConnect} disabled={loading} className="w-full mt-4 bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all shadow-xl">
               {loading ? "Connecting..." : "Connect Wallet"}
             </button>
           ) : (
-            <div className="space-y-6">
-              <div className={`p-4 rounded-2xl text-xs font-bold border transition-colors ${isEligible ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                {isEligible === null ? "Synchronizing..." : isEligible ? "✅ Ready to claim" : "⏳ Limit reached (Try again in 24h)"}
+            <div className="space-y-6 mt-6">
+              <div className={`p-4 rounded-2xl text-xs font-bold border ${isEligible ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
+                {isEligible === null ? "Checking..." : isEligible ? "✅ Eligible to claim" : "⏳ Already claimed today"}
               </div>
 
               <button
                 onClick={handleClaim}
                 disabled={loading || isEligible === false}
-                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/40 disabled:bg-slate-300 disabled:shadow-none"
+                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all disabled:bg-slate-300"
               >
-                {loading ? "Processing..." : isEligible === false ? "Cooldown Active" : "Claim 0.05 STX"}
+                {loading ? "Processing..." : isEligible === false ? "Locked" : "Claim 0.05 STX"}
               </button>
 
               {txId && (
-                <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
-                  <p className="text-emerald-700 text-sm font-bold truncate">
-                    <a href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} target="_blank" className="hover:underline">Success! View in Explorer</a>
-                  </p>
+                <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl overflow-hidden">
+                  <a href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} target="_blank" className="text-emerald-700 text-xs font-bold underline break-all">
+                    View Transaction: {txId.substring(0, 15)}...
+                  </a>
                 </div>
               )}
 
-              <div className="pt-4 border-t border-slate-100">
-                <p className="text-[10px] text-slate-400 font-mono mb-2 truncate">Connected: {address}</p>
-                <button onClick={() => { disconnect(); setAddress(null); }} className="text-slate-400 text-xs hover:text-red-500 underline">Sign Out</button>
-              </div>
+              <button onClick={() => { disconnect(); setAddress(null); }} className="text-slate-400 text-xs hover:underline">Sign Out</button>
             </div>
           )}
         </AnimatePresence>
