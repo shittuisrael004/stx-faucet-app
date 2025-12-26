@@ -1,0 +1,18 @@
+---
+id: 0
+name: Mainnet deployment
+network: mainnet
+stacks-node: "https://api.hiro.so"
+bitcoin-node: "http://blockstack:blockstacksystem@bitcoin.blockstack.com:8332"
+plan:
+  batches:
+    - id: 0
+      transactions:
+        - contract-publish:
+            contract-name: stxfaucet
+            expected-sender: SP267C6MQJHPR7297033Z8VSKTJM7M62V375BRHHP
+            cost: 41030
+            path: contracts/stxfaucet.clar
+            anchor-block-only: true
+            clarity-version: 3
+      epoch: "3.3"
