@@ -5,7 +5,7 @@ import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
 import { TransactionResult } from '@stacks/connect/dist/types/methods';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// NEW: Importing Stacks Transaction and Network utilities
+// FIXED IMPORTS
 import { fetchCallReadOnlyFunction, Cl, cvToValue } from '@stacks/transactions';
 import { StacksMainnet } from '@stacks/network';
 
@@ -16,12 +16,12 @@ export default function FaucetPage() {
   const [isEligible, setIsEligible] = useState<boolean | null>(null);
   const [faucetBalance, setFaucetBalance] = useState<string>("...");
 
+  // Define the network object properly
   const mainnet = new StacksMainnet();
 
-  // 1. Fetch Contract State (Balance & Eligibility)
   const updateState = useCallback(async (userAddr: string) => {
     try {
-      // Check Eligibility via Read-Only Function
+      // 1. Check Eligibility via Read-Only Function
       const result = await fetchCallReadOnlyFunction({
         network: mainnet,
         contractAddress: CONTRACT_ADDRESS,
@@ -32,10 +32,14 @@ export default function FaucetPage() {
       });
       setIsEligible(cvToValue(result));
 
-      // Fetch Contract STX Balance
-      const balRes = await fetch(`https://api.mainnet.hiro.so/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}/balances`);
+      // 2. FIXED API FETCH
+      // Hiro API endpoint for balances
+      const balRes = await fetch(`https://api.mainnet.hiro.so/extended/v1/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}/balances`);
       const balData = await balRes.json();
-      setFaucetBalance((parseInt(balData.stx.balance) / 1000000).toLocaleString());
+      
+      // Accessing the STX balance specifically
+      const microStx = balData.stx?.balance || "0";
+      setFaucetBalance((parseInt(microStx) / 1000000).toLocaleString());
     } catch (e) {
       console.error("Failed to sync with contract:", e);
     }
@@ -80,12 +84,11 @@ export default function FaucetPage() {
     }
   }
 
-  // Bonus: Funding function
   async function handleFund() {
     try {
       await request('stx_transferStx', {
         recipient: `${CONTRACT_ADDRESS}.${CONTRACT_NAME}`,
-        amount: '1000000', // 1 STX
+        amount: '1000000', 
         network: 'mainnet',
       });
     } catch (e) { console.error(e); }
@@ -95,7 +98,6 @@ export default function FaucetPage() {
     <main className="min-h-screen flex items-center justify-center bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-100 via-slate-50 to-orange-50 p-6">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-2xl p-10 text-center border border-white">
         
-        {/* Header Stats */}
         <div className="flex justify-between items-center mb-8 bg-slate-900 rounded-2xl p-4 text-white shadow-inner">
           <div className="text-left">
             <p className="text-[10px] text-slate-400 font-bold uppercase">Faucet Balance</p>
@@ -116,7 +118,6 @@ export default function FaucetPage() {
             </button>
           ) : (
             <div className="space-y-6">
-              {/* Pre-flight eligibility check message */}
               <div className={`p-4 rounded-2xl text-xs font-bold border transition-colors ${isEligible ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
                 {isEligible === null ? "Synchronizing..." : isEligible ? "✅ Ready to claim" : "⏳ Limit reached (Try again in 24h)"}
               </div>
