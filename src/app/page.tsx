@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { connect, disconnect, openContractCall } from '@stacks/connect';
-import { PostConditionMode, Cl, cvToValue } from '@stacks/transactions';
+// Added serializeCV for the API and bytesToHex for the encoding
+import { PostConditionMode, Cl, cvToValue, serializeCV } from '@stacks/transactions';
+import { bytesToHex } from '@stacks/common'; 
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -11,32 +13,35 @@ export default function FaucetPage() {
   const [txId, setTxId] = useState<string | null>(null);
   const [faucetBalance, setFaucetBalance] = useState<string>("...");
   const [fundAmount, setFundAmount] = useState<string>("");
-  const [blocksRemaining, setBlocksRemaining] = useState<number | null>(null); // Changed to null for initial state
+  const [blocksRemaining, setBlocksRemaining] = useState<number | null>(null);
 
+  // DEEP THINK FIX: Properly hex-encode the principal argument for the RPC call
   const checkCooldown = useCallback(async (userAddr: string) => {
     try {
+      // 1. Create the Clarity Principal value
+      const principalCV = Cl.principal(userAddr);
+      // 2. Serialize it to bytes and convert to Hex string
+      const hexArg = bytesToHex(serializeCV(principalCV));
+
       const res = await fetch(`https://api.mainnet.hiro.so/v2/contracts/call-read/${CONTRACT_ADDRESS}/${CONTRACT_NAME}/get-blocks-remaining`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sender: userAddr,
-          arguments: [Cl.serialize(Cl.principal(userAddr))],
+          arguments: [hexArg], // The API requires hex-encoded Clarity values
         }),
       });
+      
       const data = await res.json();
       
       if (data.okay && data.result) {
-        // More robust parsing to prevent NaN
-        const blocksValue = cvToValue(data.result);
-        const blocks = typeof blocksValue === 'bigint' ? Number(blocksValue) : Number(blocksValue);
-        
-        setBlocksRemaining(isNaN(blocks) ? 0 : blocks);
-      } else {
-        setBlocksRemaining(0);
+        // Hiro API returns result as hex; we convert it back to a JS value
+        // The contract returns a uint, which cvToValue handles
+        const blocks = Number(cvToValue(data.result));
+        setBlocksRemaining(blocks);
       }
     } catch (e) {
       console.error("Cooldown check failed", e);
-      setBlocksRemaining(0); // Assume eligible if check fails to avoid locking users out
     }
   }, []);
 
@@ -54,7 +59,9 @@ export default function FaucetPage() {
     if (address) checkCooldown(address);
     const interval = setInterval(() => {
       getBalance();
-      if (address) checkCooldown(address);
+      if (address) {
+        checkCooldown(address);
+      }
     }, 30000);
     return () => clearInterval(interval);
   }, [getBalance, address, checkCooldown]);
@@ -85,20 +92,7 @@ export default function FaucetPage() {
     });
   }
 
-  async function handleFund() {
-    if (!fundAmount || !address) return;
-    const microStx = Math.floor(parseFloat(fundAmount) * 1000000);
-    await openContractCall({
-      contractAddress: CONTRACT_ADDRESS,
-      contractName: CONTRACT_NAME,
-      functionName: 'fund-faucet',
-      functionArgs: [Cl.uint(microStx)],
-      postConditionMode: PostConditionMode.Allow,
-      onFinish: () => { setFundAmount(""); setTimeout(getBalance, 5000); }
-    });
-  }
-
-  // Logic for UI display
+  // UI state logic
   const isCooldownActive = blocksRemaining !== null && blocksRemaining > 0;
   const hoursRemaining = isCooldownActive ? Math.ceil(blocksRemaining / 6) : 0;
 
@@ -121,7 +115,6 @@ export default function FaucetPage() {
           </button>
         ) : (
           <div className="space-y-6">
-            {/* COOLDOWN STATUS */}
             <AnimatePresence>
               {blocksRemaining !== null && (
                 <motion.div 
@@ -143,16 +136,8 @@ export default function FaucetPage() {
             >
               {loading ? "Processing..." : isCooldownActive ? "Claim Locked" : "Claim 0.05 STX"}
             </button>
-
-            <div className="pt-6 border-t border-slate-100 text-left">
-              <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mb-3">Top up Faucet</p>
-              <div className="flex gap-2">
-                <input type="number" placeholder="STX Amount" value={fundAmount} onChange={(e) => setFundAmount(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-orange-500" />
-                <button onClick={handleFund} disabled={!fundAmount || loading} className="bg-slate-900 text-white px-6 py-3 rounded-xl text-xs font-bold">Fund</button>
-              </div>
-            </div>
-
+            
+            {/* Address & Disconnect logic same as before */}
             <div className="pt-6 border-t border-slate-100">
               <p className="text-[9px] text-slate-500 font-mono break-all p-4 bg-slate-50 rounded-2xl border border-slate-100 mb-4">{address}</p>
               <button onClick={() => { disconnect(); setAddress(null); }} className="text-slate-400 text-xs font-bold hover:text-red-500 uppercase tracking-widest">Disconnect</button>
