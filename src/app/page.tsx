@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { connect, disconnect, openContractCall } from '@stacks/connect';
-import { PostConditionMode } from '@stacks/transactions';
+import { PostConditionMode, Cl } from '@stacks/transactions'; // Added Cl for arguments
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -56,10 +56,7 @@ export default function FaucetPage() {
         functionArgs: [],
         postConditionMode: PostConditionMode.Allow,
         network: 'mainnet' as any,
-        appDetails: {
-          name: 'STX Faucet',
-          icon: window.location.origin + '/favicon.ico',
-        },
+        appDetails: { name: 'STX Faucet', icon: '' },
         onFinish: (data) => {
           setTxId(data.txId);
           setLoading(false);
@@ -73,43 +70,46 @@ export default function FaucetPage() {
     }
   }
 
-  // NEW: Funding logic that multiplies by 1,000,000
+  // FIXED: Now passing the (amount uint) argument correctly
   async function handleFund() {
-    if (!fundAmount || isNaN(Number(fundAmount))) return;
+    if (!fundAmount || isNaN(Number(fundAmount)) || !address) return;
+    setLoading(true);
     
-    // Convert STX input to microSTX string
-    const microStxAmount = (parseFloat(fundAmount) * 1000000).toString();
+    // Convert STX to microSTX (e.g., 1 STX -> 1,000,000)
+    const microStxAmount = Math.floor(parseFloat(fundAmount) * 1000000);
 
     try {
       await openContractCall({
         contractAddress: CONTRACT_ADDRESS,
         contractName: CONTRACT_NAME,
-        functionName: 'fund-faucet', // Ensure this matches your contract function
-        functionArgs: [], 
-        // Note: For a direct STX transfer to contract, 
-        // stx_transferStx is often simpler, but callContract works 
-        // if your contract has a funding function.
+        functionName: 'fund-faucet',
+        functionArgs: [
+          Cl.uint(microStxAmount) // This provides the missing argument
+        ],
         postConditionMode: PostConditionMode.Allow,
         network: 'mainnet' as any,
         appDetails: { name: 'STX Faucet', icon: '' },
-        onFinish: () => {
+        onFinish: (data) => {
+          setTxId(data.txId);
           setFundAmount("");
+          setLoading(false);
           setTimeout(getBalance, 5000);
-        }
+        },
+        onCancel: () => setLoading(false),
       });
     } catch (e) {
       console.error("Funding failed", e);
+      setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#fcfcfc] p-6 font-sans">
+    <main className="min-h-screen flex items-center justify-center bg-[#fcfcfc] p-6">
       <motion.div 
         initial={{ opacity: 0, y: 10 }} 
         animate={{ opacity: 1, y: 0 }} 
         className="max-w-md w-full bg-white rounded-[3rem] shadow-2xl p-10 text-center border border-slate-50"
       >
-        {/* Faucet Liquidity Header */}
         <div className="mb-8 bg-[#111827] rounded-3xl p-6 text-white relative">
           <div className="text-left">
             <p className="text-[11px] text-slate-400 font-black uppercase tracking-widest mb-1">Faucet Liquidity</p>
@@ -118,7 +118,7 @@ export default function FaucetPage() {
           <div className="absolute top-4 right-4 bg-orange-500/20 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">LIVE</div>
         </div>
 
-        <h1 className="text-4xl font-black text-slate-800 mb-2">STX <span className="text-orange-500">Faucet</span></h1>
+        <h1 className="text-4xl font-black text-slate-800 mb-2 tracking-tighter">STX <span className="text-orange-500">Faucet</span></h1>
         <p className="text-slate-400 text-xs mb-8">Mainnet Rewards Protocol</p>
 
         <AnimatePresence mode="wait">
@@ -128,16 +128,14 @@ export default function FaucetPage() {
             </button>
           ) : (
             <div className="space-y-6">
-              {/* Claim Section */}
               <button
                 onClick={handleClaim}
                 disabled={loading}
-                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50"
+                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-lg disabled:opacity-50"
               >
                 {loading ? "Processing..." : "Claim 0.05 STX"}
               </button>
 
-              {/* NEW: Funding Section */}
               <div className="pt-6 border-t border-slate-100">
                 <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mb-3 text-left">Top up Faucet</p>
                 <div className="flex gap-2">
@@ -146,11 +144,13 @@ export default function FaucetPage() {
                     placeholder="Amount in STX" 
                     value={fundAmount}
                     onChange={(e) => setFundAmount(e.target.value)}
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500 transition-colors"
+                    // FIXED: Changed text color to slate-900 so it's visible
+                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 transition-colors"
                   />
                   <button 
                     onClick={handleFund}
-                    className="bg-slate-900 text-white px-4 py-3 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors"
+                    disabled={loading || !fundAmount}
+                    className="bg-slate-900 text-white px-6 py-3 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors disabled:opacity-50"
                   >
                     Fund
                   </button>
@@ -165,9 +165,8 @@ export default function FaucetPage() {
                 </div>
               )}
 
-              {/* Full Connected Address */}
               <div className="pt-6 border-t border-slate-100">
-                <p className="text-[9px] text-slate-400 font-mono break-all mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <p className="text-[9px] text-slate-500 font-mono break-all mb-4 bg-slate-50 p-4 rounded-2xl border border-slate-100 leading-relaxed">
                   {address}
                 </p>
                 <button 
