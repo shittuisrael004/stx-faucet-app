@@ -1,60 +1,45 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { connect, disconnect, openContractCall } from '@stacks/connect';
+import { PostConditionMode } from '@stacks/transactions';
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
 import { motion, AnimatePresence } from 'framer-motion';
-import { fetchCallReadOnlyFunction, Cl, cvToValue } from '@stacks/transactions';
 
 export default function FaucetPage() {
   const [address, setAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [txId, setTxId] = useState<string | null>(null);
-  const [isEligible, setIsEligible] = useState<boolean | null>(null);
   const [faucetBalance, setFaucetBalance] = useState<string>("...");
 
-  // Sync state using a simple URL-based network config
-  const updateState = useCallback(async (userAddr: string) => {
+  // Simple balance fetch using standard browser fetch
+  const getBalance = async () => {
     try {
-      // 1. Eligibility Check
-      const result = await fetchCallReadOnlyFunction({
-        contractAddress: CONTRACT_ADDRESS,
-        contractName: CONTRACT_NAME,
-        functionName: 'is-eligible',
-        functionArgs: [Cl.principal(userAddr)],
-        senderAddress: userAddr,
-        // Passing the API URL directly to avoid Network module issues
-        network: { coreApiUrl: 'https://api.mainnet.hiro.so' } as any,
-      });
-      setIsEligible(cvToValue(result));
-
-      // 2. Balance Check
-      const balRes = await fetch(`https://api.mainnet.hiro.so/extended/v1/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}/balances`);
-      const balData = await balRes.json();
-      const microStx = balData.stx?.balance || "0";
-      setFaucetBalance((parseInt(microStx) / 1000000).toLocaleString());
+      const res = await fetch(`https://api.mainnet.hiro.so/extended/v1/address/${CONTRACT_ADDRESS}.${CONTRACT_NAME}/balances`);
+      const data = await res.json();
+      const stx = data.stx?.balance || "0";
+      setFaucetBalance((parseInt(stx) / 1000000).toLocaleString());
     } catch (e) {
-      console.error("Sync error:", e);
+      console.error("Balance fetch failed", e);
     }
-  }, []);
+  };
 
   useEffect(() => {
-    if (address) updateState(address);
-  }, [address, updateState]);
+    getBalance();
+    // Refresh balance every 60 seconds
+    const interval = setInterval(getBalance, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function handleConnect() {
-    setLoading(true);
     try {
       const response = await connect();
-      const stxAddr = response.addresses.find(
-        (a) => a.symbol === 'STX' || a.address.startsWith('SP')
-      );
+      const stxAddr = response.addresses.find(a => a.symbol === 'STX' || a.address.startsWith('SP'));
       if (stxAddr) setAddress(stxAddr.address);
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('Connection failed', error);
     }
   }
 
-  // THE FIX: Using openContractCall instead of provider.request
   async function handleClaim() {
     if (!address) return;
     setLoading(true);
@@ -65,6 +50,9 @@ export default function FaucetPage() {
         contractName: CONTRACT_NAME,
         functionName: 'claim-stx',
         functionArgs: [],
+        // IMPORTANT: This allows the contract to send you the 0.05 STX
+        postConditionMode: PostConditionMode.Allow, 
+        network: 'mainnet' as any,
         appDetails: {
           name: 'STX Faucet',
           icon: window.location.origin + '/favicon.ico',
@@ -72,59 +60,61 @@ export default function FaucetPage() {
         onFinish: (data) => {
           setTxId(data.txId);
           setLoading(false);
+          getBalance(); // Update balance after claim
         },
         onCancel: () => {
           setLoading(false);
         },
       });
     } catch (error) {
-      console.error('Claim failed:', error);
+      console.error('Transaction failed', error);
       setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-[#f8fafc] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-orange-100 via-slate-50 to-orange-50 p-6">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-md w-full bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-2xl p-10 text-center border border-white">
+    <main className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
+      <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center border border-slate-100">
         
-        <div className="flex justify-between items-center mb-8 bg-slate-900 rounded-2xl p-4 text-white shadow-inner">
+        {/* Balance Display */}
+        <div className="mb-8 bg-[#0f172a] rounded-2xl p-4 text-white flex justify-between items-center">
           <div className="text-left">
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Faucet Balance</p>
-            <p className="text-xl font-mono text-orange-400 font-bold">{faucetBalance} STX</p>
+            <p className="text-xl font-mono text-orange-500 font-bold">{faucetBalance} STX</p>
           </div>
-          <div className="px-2 py-1 rounded bg-orange-500/10 text-orange-500 text-[10px] font-bold">LIVE</div>
+          <div className="bg-orange-500/10 text-orange-500 px-2 py-1 rounded text-[10px] font-bold">LIVE</div>
         </div>
 
-        <h1 className="text-4xl font-black text-slate-800 mb-2 tracking-tight">STX <span className="text-orange-500">Faucet</span></h1>
+        <h1 className="text-4xl font-black text-slate-800 mb-8">STX <span className="text-orange-500">Faucet</span></h1>
 
         <AnimatePresence mode="wait">
           {!address ? (
-            <button onClick={handleConnect} disabled={loading} className="w-full mt-4 bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all shadow-xl">
-              {loading ? "Connecting..." : "Connect Wallet"}
+            <button onClick={handleConnect} className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl hover:bg-slate-800 transition-all shadow-lg">
+              Connect Wallet
             </button>
           ) : (
-            <div className="space-y-6 mt-6">
-              <div className={`p-4 rounded-2xl text-xs font-bold border ${isEligible ? 'bg-emerald-50 border-emerald-100 text-emerald-700' : 'bg-red-50 border-red-100 text-red-600'}`}>
-                {isEligible === null ? "Checking eligibility..." : isEligible ? "✅ You can claim now" : "⏳ Daily limit reached"}
-              </div>
-
+            <div className="space-y-4">
               <button
                 onClick={handleClaim}
-                disabled={loading || isEligible === false}
-                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-lg disabled:bg-slate-300"
+                disabled={loading}
+                className="w-full bg-orange-500 text-white font-bold py-5 rounded-2xl hover:bg-orange-600 transition-all shadow-xl disabled:opacity-50"
               >
-                {loading ? "Opening Wallet..." : isEligible === false ? "Cooldown" : "Claim 0.05 STX"}
+                {loading ? "Confirm in Wallet..." : "Claim 0.05 STX"}
               </button>
 
               {txId && (
                 <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-2xl">
-                  <a href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} target="_blank" className="text-emerald-700 text-xs font-bold underline break-all">
-                    Tx Sent! View: {txId.substring(0, 15)}...
-                  </a>
+                  <p className="text-emerald-700 text-xs font-bold break-all">
+                    Transaction Sent!<br/>
+                    <a href={`https://explorer.hiro.so/txid/${txId}?chain=mainnet`} target="_blank" className="underline">View: {txId.substring(0, 12)}...</a>
+                  </p>
                 </div>
               )}
 
-              <button onClick={() => { disconnect(); setAddress(null); }} className="text-slate-400 text-xs hover:underline">Sign Out</button>
+              <div className="pt-4 mt-4 border-t border-slate-100">
+                <p className="text-[10px] text-slate-400 font-mono truncate mb-2">{address}</p>
+                <button onClick={() => { disconnect(); setAddress(null); }} className="text-slate-400 text-xs hover:text-red-500 underline">Sign Out</button>
+              </div>
             </div>
           )}
         </AnimatePresence>
