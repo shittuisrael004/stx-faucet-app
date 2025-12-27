@@ -54,3 +54,9 @@ To run this project, you will need to add the following variables to your `.env`
 
 ### Mainnet Details
 - **Contract:** `SP...` (Update with your actual address)
+
+---
+
+## 🤝 Contributing
+Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/sargesmith/stx-faucet-app/issues).
+
