@@ -60,3 +60,8 @@ To run this project, you will need to add the following variables to your `.env`
 ## 🤝 Contributing
 Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/sargesmith/stx-faucet-app/issues).
 
+## 👨‍💻 Author
+**sargesmith**
+- GitHub: [@sargesmith](https://github.com/shittuisrael004)
+- Built for the Stacks Ecosystem 🧱
+
