@@ -65,3 +65,6 @@ Contributions, issues, and feature requests are welcome! Feel free to check the 
 - GitHub: [@sargesmith](https://github.com/shittuisrael004)
 - Built for the Stacks Ecosystem 🧱
 
+## ⚖️ License
+This project is [MIT](https://choosealicense.com/licenses/mit/) licensed.
+
