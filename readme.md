@@ -15,3 +15,12 @@ This repository is organized as a full-stack workspace:
 - **/contracts**: Contains the Clarity smart contracts and Clarinet configuration.
 - **/frontend**: The Next.js web application, styled with Tailwind CSS and Framer Motion.
 - **/tests**: Clarinet test suites for contract validation.
+
+## 📜 Smart Contract Logic
+
+The faucet is governed by a Clarity smart contract that ensures fair distribution:
+
+- **Claim Amount:** 0.05 STX per request.
+- **Cooldown Period:** 144 blocks (approx. 24 hours).
+- **Security:** Uses `tx-sender` verification to prevent unauthorized contract calls.
+- **Read-Only Functions:** Includes helpers to check faucet balance and remaining blocks for a specific user.
