@@ -24,3 +24,13 @@ The faucet is governed by a Clarity smart contract that ensures fair distributio
 - **Cooldown Period:** 144 blocks (approx. 24 hours).
 - **Security:** Uses `tx-sender` verification to prevent unauthorized contract calls.
 - **Read-Only Functions:** Includes helpers to check faucet balance and remaining blocks for a specific user.
+
+## 🛠 Local Development
+
+### 1. Smart Contracts
+Ensure you have [Clarinet](https://github.com/hirosystems/clarinet) installed.
+```bash
+# Check contract integrity
+clarinet check
+# Run tests
+clarinet test
