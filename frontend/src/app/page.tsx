@@ -1,9 +1,12 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { connect, disconnect, openContractCall } from '@stacks/connect';
-import { PostConditionMode, Cl } from '@stacks/transactions'; // Added Cl for arguments
+import { PostConditionMode, Cl } from '@stacks/transactions';
 import { CONTRACT_ADDRESS, CONTRACT_NAME } from '@/lib/stacks';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// Force Next.js to skip pre-rendering this page
+export const dynamic = 'force-dynamic';
 
 export default function FaucetPage() {
   const [address, setAddress] = useState<string | null>(null);
@@ -11,6 +14,14 @@ export default function FaucetPage() {
   const [txId, setTxId] = useState<string | null>(null);
   const [faucetBalance, setFaucetBalance] = useState<string>("...");
   const [fundAmount, setFundAmount] = useState<string>("");
+  
+  // ADDED: Mount Guard State
+  const [mounted, setMounted] = useState(false);
+
+  // Set mounted to true only after the component hits the browser
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const getBalance = useCallback(async () => {
     try {
@@ -26,10 +37,12 @@ export default function FaucetPage() {
   }, []);
 
   useEffect(() => {
-    getBalance();
-    const interval = setInterval(getBalance, 30000);
-    return () => clearInterval(interval);
-  }, [getBalance]);
+    if (mounted) {
+      getBalance();
+      const interval = setInterval(getBalance, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [getBalance, mounted]);
 
   async function handleConnect() {
     try {
@@ -70,12 +83,10 @@ export default function FaucetPage() {
     }
   }
 
-  // FIXED: Now passing the (amount uint) argument correctly
   async function handleFund() {
     if (!fundAmount || isNaN(Number(fundAmount)) || !address) return;
     setLoading(true);
     
-    // Convert STX to microSTX (e.g., 1 STX -> 1,000,000)
     const microStxAmount = Math.floor(parseFloat(fundAmount) * 1000000);
 
     try {
@@ -83,9 +94,7 @@ export default function FaucetPage() {
         contractAddress: CONTRACT_ADDRESS,
         contractName: CONTRACT_NAME,
         functionName: 'fund-faucet',
-        functionArgs: [
-          Cl.uint(microStxAmount) // This provides the missing argument
-        ],
+        functionArgs: [Cl.uint(microStxAmount)],
         postConditionMode: PostConditionMode.Allow,
         network: 'mainnet' as any,
         appDetails: { name: 'STX Faucet', icon: '' },
@@ -102,6 +111,9 @@ export default function FaucetPage() {
       setLoading(false);
     }
   }
+
+  // ADDED: Prevent rendering anything until mounted
+  if (!mounted) return null;
 
   return (
     <main className="min-h-screen flex items-center justify-center bg-[#fcfcfc] p-6">
@@ -144,7 +156,6 @@ export default function FaucetPage() {
                     placeholder="STX Amount" 
                     value={fundAmount}
                     onChange={(e) => setFundAmount(e.target.value)}
-                    // FIXED: Changed text color to slate-900 so it's visible
                     className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-orange-500 transition-colors"
                   />
                   <button 
