@@ -68,3 +68,5 @@ Contributions, issues, and feature requests are welcome! Feel free to check the 
 ## ⚖️ License
 This project is [MIT](https://choosealicense.com/licenses/mit/) licensed.
 
+---
+*If you find this faucet helpful, consider funding it via the 'Top up' feature to help the next developer!*
