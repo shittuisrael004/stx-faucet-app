@@ -39,3 +39,18 @@ clarinet test
 cd frontend
 npm install
 npm run dev
+
+### Phase 5: Deployment & Environment
+**Task:** Finalize with the Vercel and Mainnet details.
+```markdown
+## 🚀 Deployment
+
+The frontend is deployed on **Vercel**.
+
+### Environment Variables
+To run this project, you will need to add the following variables to your `.env` or Vercel dashboard:
+- `NEXT_PUBLIC_CONTRACT_ADDRESS`: The deployed contract principal.
+- `NEXT_PUBLIC_CONTRACT_NAME`: The name of the faucet contract.
+
+### Mainnet Details
+- **Contract:** `SP...` (Update with your actual address)
