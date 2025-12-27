@@ -34,3 +34,8 @@ Ensure you have [Clarinet](https://github.com/hirosystems/clarinet) installed.
 clarinet check
 # Run tests
 clarinet test
+
+```bash
+cd frontend
+npm install
+npm run dev
